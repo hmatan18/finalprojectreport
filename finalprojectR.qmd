@@ -1,0 +1,103 @@
+---
+title: "finalproject"
+format: html
+editor: visual
+---
+
+```{r}
+rm(list = ls())
+# Load libraries
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+# PREPARING DATA
+
+# Load enrollment data into a data frame enrollment_data
+enrollment_data <- read.csv("/Users/haleymatan/Desktop/enrollment.csv")
+# Load ACS data into a data frame acs_data
+acs_data <- read.csv("/Users/haleymatan/Desktop/acs_data.csv")
+
+# Reshape the ACS data to a wide format, where each unique value in the variable
+# Column becomes a new column, with corresponding values taken from the estimate column
+acs_data_wide <- acs_data %>%
+  pivot_wider(names_from = variable, values_from = estimate)
+
+# Rename the column "GEOID" in the ACS data to "LEAID" to match the column name in the enrollment data
+colnames(acs_data_wide)[colnames(acs_data_wide) == "GEOID"] <- "LEAID"
+
+# Convert the "LEAID" column in both datasets to character type
+# to ensure compatibility during the merge
+enrollment_data$LEAID <- as.character(enrollment_data$LEAID)
+acs_data_wide$LEAID <- as.character(acs_data_wide$LEAID)
+```
+
+```{r}
+# MERGING/CLEANING DATA
+
+# Merge the two datasets using the "LEAID" column into data frame merged_data
+merged_data <- enrollment_data %>%
+  inner_join(acs_data_wide, by = "LEAID")
+
+# Replace specific numeric codes (-3, -4, -5, -6, -8, -9, -11, -13) with NA
+merged_data <- merged_data %>%
+  mutate(across(where(is.numeric), ~ ifelse(. %in% c(-3, -4, -5, -6, -8, -9, -11, -13), NA, .)))
+
+# Address NA values by substituing missing values with statistically significant values for better usability
+# Replace missing values (NA) in the poverty_rate column with the mean of the poverty_rate" column 
+merged_data$poverty_rate[is.na(merged_data$poverty_rate)] <- mean(merged_data$poverty_rate, na.rm = TRUE)
+# Replace missing values (NA) in the median_income column with the median of the median_income column
+merged_data$median_income[is.na(merged_data$median_income)] <- median(merged_data$median_income, na.rm = TRUE)
+
+# Add new columns to the merged datase
+merged_data <- merged_data %>%
+  mutate(
+    special_ed_total = TOT_IDEAENR_M + TOT_IDEAENR_F, # Calculate total special ed enrollment
+    total_enrollment = TOT_ENR_M + TOT_ENR_F
+  )  # Calculate total student enrollment
+
+# Calculate the percentage of special education students in the total enrollment and add it as a new column special_ed_percentage
+merged_data <- merged_data %>%
+  mutate(special_ed_percentage = (special_ed_total / total_enrollment) * 100)
+
+```
+
+```{r}
+# VISUALIZATIONS
+
+# Create a histogram to visualize the distribution of the special education percentage
+ggplot(merged_data, aes(x = special_ed_percentage)) +
+  geom_histogram(binwidth = 5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Special Education Percentage",
+       x = "Special Education Percentage",
+       y = "Frequency")
+
+# Create a scatter plot to explore the relationship between poverty rate and special education percentage
+ggplot(merged_data, aes(x = poverty_rate, y = special_ed_percentage)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Poverty Rate vs Special Education Percentage",
+       x = "Poverty Rate",
+       y = "Special Education Percentage")
+
+# Create a scatter plot to examine the relationship between median income and special education percentage
+ggplot(merged_data, aes(x = median_income, y = special_ed_percentage)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Median Income vs Special Education Percentage",
+       x = "Median Income",
+       y = "Special Education Percentage")
+```
+
+\
+
+```{r}
+# REGRESSION
+
+# Fit a linear regression model to predict special education percentage using poverty_rate and median_income 
+model <- lm(special_ed_percentage ~ poverty_rate + median_income, data = merged_data)
+
+# Display a summary of the regression model
+summary(model)
+```
